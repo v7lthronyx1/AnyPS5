@@ -41,6 +41,16 @@ LOADED_NUMBERS = (
     ("load-then-xor-r8d-r8d", bytes.fromhex("b8 3b 00 00 00 47 31 c0 0f 05 c3"), 0x218, 59),
     ("xor-then-mov-r8b", bytes.fromhex("31 c0 41 b0 05 0f 05 c3"), 0x215, 0),
     ("word-load-dead-rex", bytes.fromhex("31 c0 41 66 b8 3b 01 0f 05 c3"), 0x217, 0x13B),
+    ("word-load-rex-r", bytes.fromhex("31 c0 66 44 b8 3b 01 0f 05 c3"), 0x217, 0x13B),
+    ("xor-then-mov-r8w", bytes.fromhex("31 c0 66 41 b8 3b 01 0f 05 c3"), 0x217, 0),
+    ("low-byte-prefixed-syscall", bytes.fromhex("31 c0 b0 3b f3 0f 05 c3"), 0x214, 59),
+    ("low-byte-prefixed-sysenter", bytes.fromhex("31 c0 b0 3b 66 0f 34 c3"), 0x214, 59),
+    ("low-byte-prefixed-int80", bytes.fromhex("31 c0 b0 3b 66 cd 80 c3"), 0x214, 59),
+    ("misaligned-prefixed-syscall", UNDECODABLE + b"\x3c" + bytes.fromhex("66 48 c7 c0 09 00 00 00 f2 49 89 ca f3 0f 05 c3"), 0x223, 9),
+    ("misaligned-rex-r-imm64-prefixed", UNDECODABLE + b"\x3c" + bytes.fromhex("4c b8 3b 00 00 00 00 00 00 00 f2 49 89 ca 48 0f 05 c3"), 0x225, 59),
+    ("load-ending-in-prefix-before-low-byte", UNDECODABLE + b"\x3c" + bytes.fromhex("b8 3b 00 3c 66 b0 3b 0f 05 c3"), 0x21E, 0x663C003B),
+    ("load-ending-in-rex-before-low-byte", UNDECODABLE + b"\x3c" + bytes.fromhex("b8 3b 00 3c 41 b0 3b 0f 05 c3"), 0x21E, 0x413C003B),
+    ("load-ending-in-prefix-before-low-word", UNDECODABLE + b"\x3c" + bytes.fromhex("b8 00 00 3c 66 66 b8 3b 01 0f 05 c3"), 0x220, 0x663C013B),
 )
 JUMP_TABLE_DISPATCH = bytes.fromhex("48 8d 0d 09 00 00 00 48 63 04 b9 48 01 c8 ff e0")
 

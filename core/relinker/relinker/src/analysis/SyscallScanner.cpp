@@ -26,7 +26,6 @@ static constexpr std::uint8_t SYSENTER_BYTE0 = 0x0F;
 static constexpr std::uint8_t SYSENTER_BYTE1 = 0x34;
 static constexpr std::uint8_t SYSRET_BYTE0 = 0x0F;
 static constexpr std::uint8_t SYSRET_BYTE1 = 0x07;
-static constexpr std::size_t SYSCALL_NUMBER_LOOKBACK = 8;
 
 static constexpr std::array<std::uint8_t, 23> SDK_GENERIC_SYSCALL_STUB{
     0x48, 0x89, 0xF8, 0x48, 0x89, 0xF7, 0x48, 0x89, 0xD6, 0x48, 0x89, 0xCA,
@@ -170,13 +169,13 @@ static std::optional<std::uint64_t> ConstantRaxLoad(const std::uint8_t* bytes, c
     const bool hasRex = opcode > 0 && (bytes[opcode - 1] & 0xF0) == 0x40;
     const std::uint8_t rex = hasRex ? bytes[opcode - 1] : 0;
 
-    if (hasRex && rex == 0x48 && length - opcode == 6 && bytes[opcode] == 0xC7 && bytes[opcode + 1] == 0xC0) {
+    if (hasRex && (rex & 0x09) == 0x08 && length - opcode == 6 && bytes[opcode] == 0xC7 && bytes[opcode + 1] == 0xC0) {
         std::int32_t immediate = 0;
         std::memcpy(&immediate, bytes + opcode + 2, sizeof(immediate));
         return static_cast<std::uint64_t>(static_cast<std::int64_t>(immediate));
     }
 
-    if (hasRex && rex == 0x48 && length - opcode == 9 && bytes[opcode] == 0xB8) {
+    if (hasRex && (rex & 0x09) == 0x08 && length - opcode == 9 && bytes[opcode] == 0xB8) {
         std::uint64_t value = 0;
         std::memcpy(&value, bytes + opcode + 1, sizeof(value));
         return value;
@@ -192,6 +191,25 @@ static std::optional<std::uint64_t> ConstantRaxLoad(const std::uint8_t* bytes, c
         && std::find(bytes, bytes + opcode, 0x66) == bytes + opcode)
         return 0;
 
+    return std::nullopt;
+}
+
+struct LowRaxWrite {
+    std::size_t Length;
+    std::uint64_t Mask;
+    std::uint64_t Value;
+};
+
+static std::optional<LowRaxWrite> ImmediateLowRaxWrite(const std::uint8_t* bytes, const std::size_t length) {
+    const std::size_t opcode = Codegen::DecodedInstruction{bytes, length}.OpcodeOffset();
+    const bool hasRex = opcode > 0 && (bytes[opcode - 1] & 0xF0) == 0x40;
+    const std::uint8_t rex = hasRex ? bytes[opcode - 1] : 0;
+    if ((rex & 0x01) == 0 && length - opcode == 2 && bytes[opcode] == 0xB0)
+        return LowRaxWrite{length, 0xFF, bytes[opcode + 1]};
+    const std::size_t prefixEnd = hasRex ? opcode - 1 : opcode;
+    if ((rex & 0x09) == 0 && length - opcode == 3 && bytes[opcode] == 0xB8
+        && std::find(bytes, bytes + prefixEnd, 0x66) != bytes + prefixEnd)
+        return LowRaxWrite{length, 0xFFFF, static_cast<std::uint64_t>(bytes[opcode + 1]) | static_cast<std::uint64_t>(bytes[opcode + 2]) << 8};
     return std::nullopt;
 }
 
@@ -213,7 +231,9 @@ static bool MovesOtherRegisterThanRax(const std::uint8_t* bytes, const std::size
 
 static std::optional<std::uint64_t> ConstantSyscallNumber(const std::vector<std::uint8_t>& codeSection, const FileByteOffset codeSectionOffset, const RecentInstructions& recent) {
     FileByteOffset next = recent.Before(0).Offset;
-    for (std::size_t step = 1; step <= SYSCALL_NUMBER_LOOKBACK && step < recent.count; ++step) {
+    std::uint64_t mask = 0;
+    std::uint64_t low = 0;
+    for (std::size_t step = 1; step < std::min(recent.count, RecentInstructions::Capacity); ++step) {
         const auto& match = recent.Before(step);
         if (match.Offset + match.Length != next)
             return std::nullopt;
@@ -226,7 +246,13 @@ static std::optional<std::uint64_t> ConstantSyscallNumber(const std::vector<std:
         const std::uint8_t* bytes = codeSection.data() + start;
 
         if (const auto value = ConstantRaxLoad(bytes, match.Length))
-            return value;
+            return (*value & ~mask) | low;
+
+        if (const auto write = ImmediateLowRaxWrite(bytes, match.Length)) {
+            low |= write->Value & ~mask;
+            mask |= write->Mask;
+            continue;
+        }
 
         const std::size_t opcode = Codegen::DecodedInstruction{bytes, match.Length}.OpcodeOffset();
         const std::size_t begin = opcode > 0 && (bytes[opcode - 1] & 0xF0) == 0x40 ? opcode - 1 : opcode;
@@ -268,13 +294,13 @@ static ActivePrefixes ActivePrefixesBefore(const std::vector<std::uint8_t>& code
 static std::optional<std::uint64_t> ConstantRaxSetEndingAt(const std::vector<std::uint8_t>& code, const std::size_t end) {
     if (end > code.size())
         return std::nullopt;
-    if (end >= 10 && code[end - 10] == 0x48 && code[end - 9] == 0xB8) {
+    if (end >= 10 && (code[end - 10] & 0xF9) == 0x48 && code[end - 9] == 0xB8) {
         std::uint64_t value = 0;
         std::memcpy(&value, code.data() + end - 8, sizeof(value));
         return value;
     }
     std::uint32_t immediate = 0;
-    if (end >= 7 && code[end - 7] == 0x48 && code[end - 6] == 0xC7 && code[end - 5] == 0xC0) {
+    if (end >= 7 && (code[end - 7] & 0xF9) == 0x48 && code[end - 6] == 0xC7 && code[end - 5] == 0xC0) {
         std::memcpy(&immediate, code.data() + end - 4, sizeof(immediate));
         return static_cast<std::uint64_t>(static_cast<std::int64_t>(static_cast<std::int32_t>(immediate)));
     }
@@ -294,48 +320,63 @@ static std::optional<std::uint64_t> ConstantRaxSetEndingAt(const std::vector<std
     return std::nullopt;
 }
 
-struct LowRaxWrite {
-    std::size_t Length;
-    std::uint64_t Mask;
-    std::uint64_t Value;
-};
-
-static std::optional<LowRaxWrite> ImmediateLowRaxWriteEndingAt(const std::vector<std::uint8_t>& code, const std::size_t end) {
+static void VisitImmediateLowRaxWritesEndingAt(const std::vector<std::uint8_t>& code, const std::size_t end, const std::uint64_t mask, const std::uint64_t low, const auto& visit) {
     if (end > code.size())
-        return std::nullopt;
+        return;
     if (end >= 2 && code[end - 2] == 0xB0) {
         const ActivePrefixes prefixes = ActivePrefixesBefore(code, end - 2);
-        if ((prefixes.Rex & 0x01) == 0)
-            return LowRaxWrite{prefixes.Count + 2, 0xFF, code[end - 1]};
-        return LowRaxWrite{prefixes.Count + 2, 0, 0};
+        const std::uint64_t writeMask = (prefixes.Rex & 0x01) == 0 ? 0xFF : 0;
+        const std::uint64_t writeValue = (prefixes.Rex & 0x01) == 0 ? code[end - 1] : 0;
+        for (std::size_t prefix = prefixes.Count; prefix > 0; --prefix)
+            visit({end - 2 - prefix, mask | writeMask, low | (writeValue & ~mask)});
+        visit({end - 2, mask | 0xFF, low | (static_cast<std::uint64_t>(code[end - 1]) & ~mask)});
     }
-    if (end >= 4 && code[end - 4] == 0x66 && code[end - 3] == 0xB8) {
-        const std::size_t length = end >= 5 && (code[end - 5] & 0xF0) == 0x40 ? 5 : 4;
-        return LowRaxWrite{length, 0xFFFF, static_cast<std::uint64_t>(code[end - 2]) | static_cast<std::uint64_t>(code[end - 1]) << 8};
+    if (end >= 3 && code[end - 3] == 0xB8) {
+        const ActivePrefixes prefixes = ActivePrefixesBefore(code, end - 3);
+        if (prefixes.OperandSize && (prefixes.Rex & 0x08) == 0) {
+            const std::size_t deadRex = end - 3 > prefixes.Count && (code[end - 4 - prefixes.Count] & 0xF0) == 0x40 ? 1 : 0;
+            const std::uint64_t word = static_cast<std::uint64_t>(code[end - 2]) | static_cast<std::uint64_t>(code[end - 1]) << 8;
+            const std::uint64_t writeMask = (prefixes.Rex & 0x01) == 0 ? 0xFFFF : 0;
+            const std::uint64_t writeValue = (prefixes.Rex & 0x01) == 0 ? word : 0;
+            std::size_t minPrefix = 1;
+            while (minPrefix < prefixes.Count && code[end - 3 - minPrefix] != 0x66)
+                ++minPrefix;
+            for (std::size_t prefix = prefixes.Count + deadRex; prefix >= minPrefix; --prefix)
+                visit({end - 3 - prefix, mask | writeMask, low | (writeValue & ~mask)});
+        }
     }
-    return std::nullopt;
 }
 
 static std::optional<std::uint64_t> ConstantSyscallNumberInBytes(const std::vector<std::uint8_t>& code, const std::size_t syscall) {
     if (syscall > code.size())
         return std::nullopt;
     using Step = std::tuple<std::size_t, std::uint64_t, std::uint64_t>;
-    std::vector<Step> pending{{syscall, 0, 0}};
-    std::set<Step> seen(pending.begin(), pending.end());
+    std::vector<Step> pending;
+    std::set<Step> seen;
     const auto visit = [&](const Step& step) {
         if (seen.insert(step).second)
             pending.push_back(step);
     };
+    const ActivePrefixes syscallPrefixes = ActivePrefixesBefore(code, syscall);
+    for (std::size_t prefix = syscallPrefixes.Count; prefix > 0; --prefix)
+        visit({syscall - prefix, 0, 0});
+    visit({syscall, 0, 0});
     while (!pending.empty()) {
         const auto [end, mask, low] = pending.back();
         pending.pop_back();
         if (const auto value = ConstantRaxSetEndingAt(code, end))
             return (*value & ~mask) | low;
-        if (const auto write = ImmediateLowRaxWriteEndingAt(code, end))
-            visit({end - write->Length, mask | write->Mask, low | (write->Value & ~mask)});
-        for (const std::size_t length : {std::size_t{2}, std::size_t{3}})
-            if (end >= length && MovesOtherRegisterThanRax(code.data() + end - length, length))
+        VisitImmediateLowRaxWritesEndingAt(code, end, mask, low, visit);
+        for (const std::size_t length : {std::size_t{2}, std::size_t{3}}) {
+            if (end >= length && MovesOtherRegisterThanRax(code.data() + end - length, length)) {
+                const ActivePrefixes prefixes = ActivePrefixesBefore(code, end - 2);
+                if ((length == 3) == (prefixes.Rex != 0)) {
+                    for (std::size_t total = prefixes.Count + 2; total > length; --total)
+                        visit({end - total, mask, low});
+                }
                 visit({end - length, mask, low});
+            }
+        }
     }
     return std::nullopt;
 }

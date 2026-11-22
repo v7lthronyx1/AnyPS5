@@ -192,6 +192,40 @@ const Bytes kLoadThenImmediateAddStub = {
     0xC3,
 };
 
+const Bytes kLowByteAfterZeroingStub = {
+    0x31, 0xC0,
+    0xB0, 0x3B,
+    0xF3, 0x0F, 0x05,
+    0xC3,
+};
+
+const Bytes kLowWordAfterZeroingStub = {
+    0x31, 0xC0,
+    0x66, 0x44, 0xB8, 0x3B, 0x01,
+    0xF3, 0x0F, 0x05,
+    0xC3,
+};
+
+const Bytes kRexRSignExtendedStub = {
+    0x4C, 0xC7, 0xC0, 0x3B, 0x00, 0x00, 0x00,
+    0x0F, 0x05,
+    0xC3,
+};
+
+const Bytes kRexRImm64Stub = {
+    0x4C, 0xB8, 0x3B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x0F, 0x05,
+    0xC3,
+};
+
+const Bytes kEightRegisterMovesStub = {
+    0xB8, 0x3B, 0x00, 0x00, 0x00,
+    0x89, 0xDB, 0x89, 0xDB, 0x89, 0xDB, 0x89, 0xDB,
+    0x89, 0xDB, 0x89, 0xDB, 0x89, 0xDB, 0x89, 0xDB,
+    0x0F, 0x05,
+    0xC3,
+};
+
 std::string RunScanner(const std::string& binary, const Bytes& code) {
     const TempDirectory directory;
     const auto input = directory.Path() / "input.elf";
@@ -297,6 +331,11 @@ int main(const int argc, char** argv) {
         RequireNumber(binary, kExtendedIndexXorStub, "syscall number 0", "stub that zeroes eax with an index-only REX");
         RequireNumber(binary, kLoadThenExtendedZeroedStub, "syscall number 59", "stub whose intervening xor zeroes r8d");
         RequireNumber(binary, kPrefixAwareLoadStub, "syscall number 59", "32-bit constant stub with an index-only REX");
+        RequireNumber(binary, kLowByteAfterZeroingStub, "syscall number 59", "low-byte constant stub after zeroing");
+        RequireNumber(binary, kLowWordAfterZeroingStub, "syscall number 315", "low-word constant stub after zeroing");
+        RequireNumber(binary, kRexRSignExtendedStub, "syscall number 59", "64-bit sign-extended constant stub with REX.R");
+        RequireNumber(binary, kRexRImm64Stub, "syscall number 59", "64-bit immediate stub with REX.R");
+        RequireNumber(binary, kEightRegisterMovesStub, "syscall number 59", "stub with eight register moves");
 
         RequireNoNumber(binary, kRegisterStub, "stub that loads the number from a register");
         RequireNoNumber(binary, kSysenterStub, "sysenter stub");

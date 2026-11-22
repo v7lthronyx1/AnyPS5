@@ -29,6 +29,11 @@ LOAD_THEN_EXTENDED_XOR = bytes.fromhex("b83b0000004531c0") + b"\x0f\x05\xc3"
 LOAD_THEN_EXTENDED_MOVE = bytes.fromhex("b83b0000004589c0") + b"\x0f\x05\xc3"
 LOAD_THEN_EXTENDED_TO_R9 = bytes.fromhex("b83b0000004d89c1") + b"\x0f\x05\xc3"
 PREFIX_AWARE_LOAD = bytes.fromhex("44b83b000000") + b"\x0f\x05\xc3"
+REX_R_SIGN_EXTENDED = bytes.fromhex("4cc7c03b000000") + b"\x0f\x05\xc3"
+REX_R_IMM64 = bytes.fromhex("4cb83b00000000000000") + b"\x0f\x05\xc3"
+LOW_BYTE_AFTER_ZEROING = bytes.fromhex("31c0b03bf30f05") + b"\xc3"
+LOW_WORD_AFTER_ZEROING = bytes.fromhex("31c06644b83b01f30f05") + b"\xc3"
+EIGHT_REGISTER_MOVES = bytes.fromhex("b83b000000") + bytes.fromhex("89db") * 8 + b"\x0f\x05\xc3"
 MPROTECT_TAIL = bytes.fromhex("b84a0000004889f74c89c64531d24531c04531c9") + b"\x0f\x05\xc3"
 WORD_WIDE_ZEROED = bytes.fromhex("664831c0") + b"\x0f\x05\xc3"
 EXTENDED_LOAD = bytes.fromhex("41b83b000000") + b"\x0f\x05\xc3"
@@ -88,6 +93,11 @@ def main():
                                      ("load-then-extended-move", LOAD_THEN_EXTENDED_MOVE, "syscall number 59"),
                                      ("load-then-extended-to-r9", LOAD_THEN_EXTENDED_TO_R9, "syscall number 59"),
                                      ("prefix-aware-load", PREFIX_AWARE_LOAD, "syscall number 59"),
+                                     ("rex-r-sign-extended", REX_R_SIGN_EXTENDED, "syscall number 59"),
+                                     ("rex-r-imm64", REX_R_IMM64, "syscall number 59"),
+                                     ("low-byte-after-zeroing", LOW_BYTE_AFTER_ZEROING, "syscall number 59"),
+                                     ("low-word-after-zeroing", LOW_WORD_AFTER_ZEROING, "syscall number 315"),
+                                     ("eight-register-moves", EIGHT_REGISTER_MOVES, "syscall number 59"),
                                      ("mprotect-tail", MPROTECT_TAIL, "syscall number 74")):
             if expected not in reject(name, code):
                 raise AssertionError((name, "did not report " + expected))

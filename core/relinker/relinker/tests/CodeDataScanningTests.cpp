@@ -80,6 +80,16 @@ void CheckGapAndReachableRoutine(Domain::FileByteOffset origin) {
     constexpr std::array<std::uint8_t, 7> constantStub{0xb8, 0x09, 0x00, 0x00, 0x00, 0x0f, 0x05};
     std::copy(constantStub.begin(), constantStub.end(), code.begin() + DataOffset);
     CheckForbiddenInstruction(code, origin, DataOffset + 5, "syscall number 9", {{0, DataOffset}});
+    for (const auto& opcode : {Bytes{0xf3, 0x0f, 0x05}, Bytes{0x66, 0x0f, 0x34}, Bytes{0x66, 0xcd, 0x80}, Bytes{0x48, 0x0f, 0x05}}) {
+        Bytes prefixedGap{0xc3, 0x31, 0xc0, 0xb0, 0x3b};
+        prefixedGap.insert(prefixedGap.end(), opcode.begin(), opcode.end());
+        prefixedGap.push_back(0xc3);
+        CheckForbiddenInstruction(prefixedGap, origin, 5, "syscall number 59", {{0, 1}});
+        Bytes misalignedPrefixedGap{0xc3, 0x0f, 0x78, 0x3c, 0x48, 0xb8, 0x3b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf2, 0x49, 0x89, 0xca};
+        misalignedPrefixedGap.insert(misalignedPrefixedGap.end(), opcode.begin(), opcode.end());
+        misalignedPrefixedGap.push_back(0xc3);
+        CheckForbiddenInstruction(misalignedPrefixedGap, origin, 18, "syscall number 59", {{0, 1}});
+    }
     CheckForbiddenInstruction(Fixture(true), origin, RoutineOffset + 5, "syscall number 9", {{0, DataOffset}});
     CheckForbiddenInstruction(ReachableFixture({0x8b, 0x07, 0x0f, 0x05}), origin, RoutineOffset + 2, {}, {{0, DataOffset}});
     CheckForbiddenInstruction(ReachableFixture({0x89, 0xc8, 0x0f, 0x05}), origin, RoutineOffset + 2, {}, {{0, DataOffset}});
